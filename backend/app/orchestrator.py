@@ -4,6 +4,8 @@ from .prompt import build_messages
 from .ollama_client import OllamaClient
 from .asr.router import ASRRouter
 from .logger import get_logger
+from .response_policy import choose_response_language
+from .transcript_cleaner import clean_transcript
 
 log = get_logger("orchestrator")
 
@@ -28,6 +30,11 @@ class Orchestrator:
             text: User input text.
             languages: Pre-detected languages (from ASR). Auto-detected if None.
         """
+        text = clean_transcript(text)
+        if not text:
+            yield {"type": "error", "error": "Empty input received."}
+            return
+
         log.info(f"Processing text: '{text[:80]}...'")
 
         # Detect languages if not provided
@@ -82,7 +89,9 @@ class Orchestrator:
         store.add(session_id, "assistant", response_text)
 
         # Prepare TTS chunks
+        response_text = clean_transcript(response_text)
         sentences = split_sentences(response_text)
+        tts_language = choose_response_language(response_text, languages)
 
         yield {
             "type": "final",
@@ -91,6 +100,7 @@ class Orchestrator:
             "languages": list(languages),
             "is_code_mixed": code_mixed,
             "tts_plan": sentences,
+            "tts_language": tts_language,
         }
 
     async def process_audio(self, session_id: str, audio_path: str):
@@ -124,6 +134,7 @@ class Orchestrator:
                 "text": result.text,
                 "languages": list(result.languages),
                 "is_code_mixed": result.is_code_mixed,
+                "segments": result.segments,
             }
 
             # Pass to main text pipeline with pre-detected languages

@@ -22,9 +22,13 @@ class ChatResponse(BaseModel):
 class TranscriptSegment(BaseModel):
     """A single transcript segment from ASR."""
 
+    index: Optional[int] = None
     text: str
     language: Optional[str] = None
+    languages: Optional[List[str]] = None
+    dominant_language: Optional[str] = None
     engine: Optional[str] = None
+    is_code_mixed: Optional[bool] = None
     is_final: bool = True
 
 
@@ -47,6 +51,25 @@ class HealthResponse(BaseModel):
     sessions_active: int
 
 
+class TTSRequest(BaseModel):
+    """Request body for TTS synthesis."""
+
+    text: str = Field(..., description="Text to synthesize")
+    language: Optional[str] = Field(default=None, description="Preferred response language")
+    languages: List[str] = []
+
+
+class TTSResponse(BaseModel):
+    """Response body for synthesized audio."""
+
+    text: str
+    language: str
+    provider: str
+    mime_type: str
+    sample_rate: int
+    audio_b64: str
+
+
 class OrchestratorEvent(BaseModel):
     """Streaming event from the orchestrator."""
 
@@ -55,5 +78,11 @@ class OrchestratorEvent(BaseModel):
     language: Optional[str] = None
     languages: Optional[List[str]] = None
     is_code_mixed: Optional[bool] = None
+    segments: Optional[List[TranscriptSegment]] = None
     tts_plan: Optional[List[str]] = None
+    tts_language: Optional[str] = None
+    provider: Optional[str] = None
+    mime_type: Optional[str] = None
+    sample_rate: Optional[int] = None
+    audio_b64: Optional[str] = None
     error: Optional[str] = None

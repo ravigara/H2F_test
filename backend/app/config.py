@@ -12,6 +12,19 @@ class Settings(BaseSettings):
     whisper_model_size: str = "base"
     enable_indic_asr: bool = True
 
+    # TTS settings
+    enable_tts: bool = True
+    enable_tts_fallback_tone: bool = True
+    tts_sample_rate: int = 22050
+    piper_binary: str = ""
+    piper_voice_en: str = ""
+    piper_voice_hi: str = ""
+    piper_voice_kn: str = ""
+    coqui_model_en: str = ""
+    coqui_model_hi: str = ""
+    coqui_model_kn: str = ""
+    coqui_speaker: str = ""
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

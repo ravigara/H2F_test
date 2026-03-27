@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .api import router
 from .config import settings
 from .logger import get_logger
+from .tts_router import tts_router
 
 log = get_logger("main")
 
@@ -34,6 +35,8 @@ async def startup_event():
     log.info(f"Ollama URL: {settings.ollama_base_url}")
     log.info(f"Indic ASR: {'enabled' if settings.enable_indic_asr else 'disabled'}")
     log.info(f"Max context: {settings.max_context_messages} messages")
+    log.info(f"TTS enabled: {'yes' if settings.enable_tts else 'no'}")
+    log.info(f"TTS providers: {tts_router.available_providers()}")
 
 
 @app.get("/")
@@ -49,5 +52,7 @@ async def root():
             "kannada-english",
             "streaming-llm",
             "websocket-audio",
+            "tts-routing",
+            "websocket-tts",
         ],
     }

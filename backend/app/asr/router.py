@@ -3,10 +3,11 @@ import re
 from dataclasses import dataclass, field
 from typing import Set
 
-from .whisper_asr import transcribe_english, transcribe_with_language
+from .whisper_asr import transcribe_english
 from .indic_asr import transcribe_indic
 from ..language import detect_scripts, is_code_mixed, get_dominant_language
 from ..logger import get_logger
+from ..transcript_cleaner import build_segment_metadata, clean_transcript
 
 log = get_logger("asr.router")
 
@@ -32,7 +33,7 @@ def _is_mostly_ascii(text: str) -> bool:
 
 def _score_text(text: str) -> int:
     """Score transcription quality based on length and cleanliness."""
-    text = text.strip()
+    text = clean_transcript(text)
     if not text:
         return 0
 
@@ -63,17 +64,21 @@ def _merge_transcriptions(
     log.info(f"Scores — Whisper: {scores['whisper']}, Hindi: {scores['hi']}, Kannada: {scores['kn']}")
 
     # Detect what languages Whisper's output contains
+    whisper_text = clean_transcript(whisper_text)
+    hi_text = clean_transcript(hi_text)
+    kn_text = clean_transcript(kn_text)
+
     whisper_langs = detect_scripts(whisper_text) if whisper_text else set()
 
     # If Whisper output contains Indic-like transliterated words,
     # it's code-mixed and Whisper captured it well
     if whisper_text and is_code_mixed(whisper_text):
         log.info("Code-mixed speech detected in Whisper output")
-        return whisper_text.strip(), whisper_langs
+        return whisper_text, whisper_langs
 
     # If Whisper is significantly better, use it
     if scores["whisper"] > max(scores["hi"], scores["kn"]) * 1.5:
-        return whisper_text.strip(), whisper_langs
+        return whisper_text, whisper_langs
 
     # If Hindi is best
     if scores["hi"] >= scores["kn"] and scores["hi"] > scores["whisper"] * 0.7:
@@ -81,21 +86,21 @@ def _merge_transcriptions(
         combined_langs = detect_scripts(hi_text)
         if "en" in whisper_langs:
             combined_langs.add("en")
-        return hi_text.strip(), combined_langs
+        return hi_text, combined_langs
 
     # If Kannada is best
     if scores["kn"] > scores["hi"] and scores["kn"] > scores["whisper"] * 0.7:
         combined_langs = detect_scripts(kn_text)
         if "en" in whisper_langs:
             combined_langs.add("en")
-        return kn_text.strip(), combined_langs
+        return kn_text, combined_langs
 
     # Fallback: use the longest transcription
     best = max(
         [(whisper_text, whisper_langs), (hi_text, detect_scripts(hi_text)), (kn_text, detect_scripts(kn_text))],
         key=lambda x: len(x[0].strip()) if x[0] else 0,
     )
-    return best[0].strip(), best[1]
+    return clean_transcript(best[0]), best[1]
 
 
 class ASRRouter:
@@ -125,6 +130,7 @@ class ASRRouter:
         # Step 1: Whisper transcription
         log.info("Running Whisper ASR...")
         whisper_text = await loop.run_in_executor(None, transcribe_english, audio_path)
+        whisper_text = clean_transcript(whisper_text)
         log.info(f"Whisper output: '{whisper_text[:100]}'")
 
         clean_text = whisper_text.strip()
@@ -152,6 +158,8 @@ class ASRRouter:
         kn_text = await loop.run_in_executor(
             None, transcribe_indic, audio_path, "kn"
         )
+        hi_text = clean_transcript(hi_text)
+        kn_text = clean_transcript(kn_text)
 
         log.info(f"Hindi ASR: '{hi_text[:80]}'")
         log.info(f"Kannada ASR: '{kn_text[:80]}'")
@@ -171,11 +179,7 @@ class ASRRouter:
             languages=languages,
             is_code_mixed=mixed,
             dominant_language=dominant,
-            segments=[
-                {"engine": "whisper", "text": whisper_text.strip()},
-                {"engine": "indic_hi", "text": hi_text.strip()},
-                {"engine": "indic_kn", "text": kn_text.strip()},
-            ],
+            segments=build_segment_metadata(best_text),
         )
 
         log.info(
