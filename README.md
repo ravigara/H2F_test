@@ -1,6 +1,6 @@
-# NuDiscribe
+# NudiScribe
 
-NuDiscribe is a multilingual conversational backend for speech-first interactions across English, Hindi, and Kannada. It is designed to handle both typed input and spoken input, including code-mixed usage where users switch between languages within the same utterance.
+NudiScribe is a multilingual conversational backend for speech-first interactions across English, Hindi, and Kannada. It is designed to handle both typed input and spoken input, including code-mixed usage where users switch between languages within the same utterance.
 
 The current repository contains the backend service layer that performs:
 
@@ -58,7 +58,7 @@ Core modules in the current implementation:
 
 ## Current Status
 
-NuDiscribe is currently at an early backend MVP or prototype stage.
+NudiScribe is currently at an early backend MVP or prototype stage.
 
 What is already in place:
 
