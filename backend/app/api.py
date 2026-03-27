@@ -1,0 +1,254 @@
+import os
+import time
+import wave
+import json
+
+from fastapi import APIRouter, WebSocket, UploadFile, File, Form
+from fastapi.responses import JSONResponse
+from starlette.websockets import WebSocketDisconnect, WebSocketState
+
+from .orchestrator import Orchestrator
+from .schemas import ChatRequest, ChatResponse, HealthResponse
+from .memory import store
+from .config import settings
+from .logger import get_logger
+
+log = get_logger("api")
+
+router = APIRouter()
+orch = Orchestrator()
+
+_start_time = time.time()
+
+
+# ─── REST Endpoints ────────────────────────────────────────────────
+
+
+@router.get("/api/health", response_model=HealthResponse)
+async def health_check():
+    """Health check with model status and uptime."""
+    from .ollama_client import OllamaClient
+
+    client = OllamaClient()
+    ollama_ok = await client.is_available()
+
+    return HealthResponse(
+        status="ok" if ollama_ok else "degraded",
+        model=settings.ollama_model,
+        uptime_seconds=round(time.time() - _start_time, 1),
+        sessions_active=store.session_count(),
+    )
+
+
+@router.post("/api/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest):
+    """Text chat endpoint — send a message and get a full response.
+
+    Supports code-mixed Hindi-English, Kannada-English, and tri-lingual input.
+    """
+    log.info(f"Chat request [{request.session_id}]: '{request.text[:60]}...'")
+
+    response_text = ""
+    language = "en"
+    languages = []
+    is_code_mixed = False
+
+    async for event in orch.process(request.session_id, request.text):
+        if event["type"] == "delta":
+            response_text += event["text"]
+        elif event["type"] == "final":
+            language = event.get("language", "en")
+            languages = event.get("languages", [])
+            is_code_mixed = event.get("is_code_mixed", False)
+        elif event["type"] == "error":
+            return JSONResponse(
+                status_code=500,
+                content={"error": event["error"]},
+            )
+
+    return ChatResponse(
+        text=response_text,
+        language=language,
+        languages=languages,
+        is_code_mixed=is_code_mixed,
+        session_id=request.session_id,
+    )
+
+
+@router.post("/api/transcribe")
+async def transcribe_audio(file: UploadFile = File(...)):
+    """Upload an audio file and get the transcription.
+
+    Returns code-mixed transcription with language detection.
+    """
+    log.info(f"Transcribe request: {file.filename}")
+
+    os.makedirs("temp_audio", exist_ok=True)
+    temp_path = f"temp_audio/upload_{int(time.time())}.wav"
+
+    try:
+        contents = await file.read()
+        with open(temp_path, "wb") as f:
+            f.write(contents)
+
+        from .asr.router import ASRRouter
+
+        asr = ASRRouter()
+        result = await asr.transcribe_full(temp_path)
+
+        return {
+            "text": result.text,
+            "language": result.dominant_language,
+            "languages": list(result.languages),
+            "is_code_mixed": result.is_code_mixed,
+            "segments": result.segments,
+        }
+
+    except Exception as e:
+        log.error(f"Transcription failed: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+
+@router.delete("/api/session/{session_id}")
+async def clear_session(session_id: str):
+    """Clear conversation history for a session."""
+    store.clear(session_id)
+    return {"status": "cleared", "session_id": session_id}
+
+
+@router.get("/api/sessions")
+async def list_sessions():
+    """List all active sessions."""
+    return {"sessions": store.list_sessions(), "count": store.session_count()}
+
+
+# ─── WebSocket: Text ───────────────────────────────────────────────
+
+
+@router.websocket("/ws/{session_id}")
+async def text_ws(ws: WebSocket, session_id: str):
+    """WebSocket endpoint for streaming text chat.
+
+    Send: {"type": "input", "text": "your message"}
+    Receive: {"type": "delta/final/error/language_info", ...}
+    """
+    await ws.accept()
+    log.info(f"WebSocket connected: session={session_id}")
+
+    try:
+        while True:
+            raw = await ws.receive_text()
+
+            try:
+                msg = json.loads(raw)
+            except json.JSONDecodeError:
+                await ws.send_json({"type": "error", "error": "Invalid JSON"})
+                continue
+
+            if msg.get("type") != "input" or not msg.get("text"):
+                await ws.send_json(
+                    {"type": "error", "error": "Expected {type: 'input', text: '...'}"}
+                )
+                continue
+
+            async for event in orch.process(session_id, msg["text"]):
+                if ws.client_state == WebSocketState.CONNECTED:
+                    await ws.send_json(event)
+
+    except WebSocketDisconnect:
+        log.info(f"WebSocket disconnected: session={session_id}")
+
+    except Exception as e:
+        log.error(f"WebSocket error [{session_id}]: {e}")
+        try:
+            if ws.client_state == WebSocketState.CONNECTED:
+                await ws.send_json({"type": "error", "error": str(e)})
+                await ws.close(code=1011, reason=str(e))
+        except Exception:
+            pass
+
+
+# ─── WebSocket: Audio ──────────────────────────────────────────────
+
+
+@router.websocket("/ws/audio/{session_id}")
+async def audio_ws(ws: WebSocket, session_id: str):
+    """WebSocket endpoint for streaming audio.
+
+    Send binary audio chunks (16-bit PCM, 16kHz, mono).
+    Triggers processing after silence timeout or buffer limit.
+    """
+    await ws.accept()
+    log.info(f"Audio WebSocket connected: session={session_id}")
+
+    audio_buffer = bytearray()
+    last_audio_time = time.time()
+
+    SILENCE_TIMEOUT = 1.2
+    MAX_BUFFER_SIZE = 16000 * 2 * 3  # ~3 seconds of 16-bit 16kHz mono
+
+    try:
+        while True:
+            try:
+                data = await ws.receive()
+            except WebSocketDisconnect:
+                log.info(f"Audio client disconnected: session={session_id}")
+                break
+
+            # Receive audio chunks
+            if "bytes" in data and data["bytes"] is not None:
+                audio_buffer.extend(data["bytes"])
+                last_audio_time = time.time()
+                log.debug(f"Buffer: {len(audio_buffer)} bytes")
+
+            current_time = time.time()
+
+            # Trigger processing on silence or buffer limit
+            if audio_buffer and (
+                (current_time - last_audio_time > SILENCE_TIMEOUT)
+                or len(audio_buffer) >= MAX_BUFFER_SIZE
+            ):
+                log.info(f"Processing audio ({len(audio_buffer)} bytes)...")
+
+                os.makedirs("temp_audio", exist_ok=True)
+                temp_path = f"temp_audio/{session_id}_{int(time.time())}.wav"
+
+                try:
+                    # Save WAV file
+                    with wave.open(temp_path, "wb") as wf:
+                        wf.setnchannels(1)
+                        wf.setsampwidth(2)
+                        wf.setframerate(16000)
+                        wf.writeframes(audio_buffer)
+
+                    audio_buffer.clear()
+
+                    # Process through ASR → LLM pipeline
+                    async for event in orch.process_audio(session_id, temp_path):
+                        if ws.client_state == WebSocketState.CONNECTED:
+                            await ws.send_json(event)
+
+                except Exception as e:
+                    log.error(f"Audio processing error: {e}")
+                    if ws.client_state == WebSocketState.CONNECTED:
+                        await ws.send_json({"type": "error", "error": str(e)})
+
+                finally:
+                    # Cleanup temp file
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
+
+    except WebSocketDisconnect:
+        log.info(f"Audio WebSocket disconnected: session={session_id}")
+
+    except Exception as e:
+        log.error(f"Audio WebSocket error [{session_id}]: {e}")
+        try:
+            if ws.client_state == WebSocketState.CONNECTED:
+                await ws.close(code=1011, reason=str(e))
+        except Exception:
+            pass
