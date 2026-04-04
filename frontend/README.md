@@ -1,35 +1,40 @@
 # Frontend
 
-This is a standalone frontend for the existing FastAPI backend in `backend/`.
+React + TypeScript + Vite frontend for the existing FastAPI backend.
 
-## What it does
+## What it covers
 
-- connects to `ws://.../ws/{session_id}` for streaming chat
-- calls `GET /api/health`
-- calls `POST /api/transcribe`
-- calls `POST /api/tts`
-- calls `GET /api/sessions`
-- calls `DELETE /api/session/{session_id}`
+- `GET /api/health`
+- `POST /api/chat`
+- `POST /api/transcribe`
+- `POST /api/tts`
+- `GET /api/sessions`
+- `DELETE /api/session/{session_id}`
+- `WS /ws/{session_id}`
+- `WS /ws/audio/{session_id}`
+- `WS /ws/tts/{session_id}`
 
-## Run it
-
-Because the backend was left untouched, serve this folder separately.
-
-Example:
+## Run
 
 ```bash
 cd frontend
-python -m http.server 4173
+npm install
+npm run dev
 ```
 
-Then open:
+Default local UI:
 
 ```text
 http://127.0.0.1:4173
 ```
 
-Set the backend URL in the UI to your FastAPI server, typically:
+Point the app at the backend, typically:
 
 ```text
 http://127.0.0.1:8000
 ```
+
+## Notes
+
+- The live microphone path uses an `AudioWorklet` and streams raw PCM chunks to the backend.
+- Structured review and dashboard details are client-side adapters until richer backend endpoints exist.
