@@ -3,9 +3,9 @@ import re
 from dataclasses import dataclass, field
 from typing import Set
 
-from .indic_asr import transcribe_indic
+from .indic_asr import runtime_status as indic_runtime_status, transcribe_indic
 from .segmenter import create_segment_dir, segment_audio
-from .whisper_asr import transcribe_english
+from .whisper_asr import runtime_status as whisper_runtime_status, transcribe_english
 from ..language import detect_scripts, get_dominant_language, is_code_mixed
 from ..logger import get_logger
 from ..transcript_cleaner import build_segment_metadata, clean_transcript
@@ -98,6 +98,14 @@ class ASRRouter:
 
     async def _transcribe_segment(self, audio_path: str) -> tuple[str, Set[str], str]:
         loop = asyncio.get_event_loop()
+        whisper_ready, whisper_issue = whisper_runtime_status()
+        indic_ready, indic_issue = indic_runtime_status()
+
+        if not whisper_ready and not indic_ready:
+            raise RuntimeError(
+                "ASR runtime unavailable. "
+                f"Whisper: {whisper_issue}. Indic ASR: {indic_issue}."
+            )
 
         whisper_text = await loop.run_in_executor(None, transcribe_english, audio_path)
         whisper_text = clean_transcript(whisper_text)

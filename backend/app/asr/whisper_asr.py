@@ -1,19 +1,41 @@
-import whisper
-import torch
-
 from ..logger import get_logger
 
 log = get_logger("asr.whisper")
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
-
 _model = None
+_runtime_error = None
+
+
+def _resolve_runtime():
+    global _runtime_error
+
+    if _runtime_error is not None:
+        raise RuntimeError(_runtime_error)
+
+    try:
+        import torch
+        import whisper
+    except Exception as exc:
+        _runtime_error = f"Whisper runtime is unavailable: {exc}"
+        raise RuntimeError(_runtime_error) from exc
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    return whisper, device
+
+
+def runtime_status() -> tuple[bool, str]:
+    try:
+        _resolve_runtime()
+        return True, ""
+    except RuntimeError as exc:
+        return False, str(exc)
 
 
 def _load_model():
     """Lazy-load the Whisper model."""
     global _model
     if _model is None:
+        whisper, device = _resolve_runtime()
         log.info(f"Loading Whisper model on {device}...")
         try:
             _model = whisper.load_model("base").to(device)

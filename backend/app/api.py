@@ -226,6 +226,12 @@ async def transcribe_audio(file: UploadFile = File(...)):
             "segments": result.segments,
         }
 
+    except RuntimeError as e:
+        log.error(f"Transcription runtime unavailable: {e}")
+        store.record_error(None, "api.transcribe", str(e), details={"filename": filename})
+        store.record_latency(None, "api.transcribe", _elapsed_ms(started_at), status="error")
+        return JSONResponse(status_code=503, content={"error": str(e)})
+
     except Exception as e:
         log.error(f"Transcription failed: {e}")
         store.record_error(None, "api.transcribe", str(e), details={"filename": filename})

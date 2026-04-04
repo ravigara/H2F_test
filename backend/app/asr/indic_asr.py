@@ -1,21 +1,44 @@
 import os
-from transformers import AutoModel
-import torch
-import torchaudio
 
 from ..logger import get_logger
 
 log = get_logger("asr.indic")
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
-
 _model = None
+_runtime_error = None
+
+
+def _resolve_runtime():
+    global _runtime_error
+
+    if _runtime_error is not None:
+        raise RuntimeError(_runtime_error)
+
+    try:
+        import torch
+        import torchaudio
+        from transformers import AutoModel
+    except Exception as exc:
+        _runtime_error = f"Indic ASR runtime is unavailable: {exc}"
+        raise RuntimeError(_runtime_error) from exc
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    return torch, torchaudio, AutoModel, device
+
+
+def runtime_status() -> tuple[bool, str]:
+    try:
+        _resolve_runtime()
+        return True, ""
+    except RuntimeError as exc:
+        return False, str(exc)
 
 
 def _load_model():
     """Lazy-load the Indic ASR model."""
     global _model
     if _model is None:
+        _, _, AutoModel, device = _resolve_runtime()
         log.info(f"Loading Indic ASR model on {device}...")
         try:
             _model = AutoModel.from_pretrained(
@@ -43,6 +66,7 @@ def preprocess_audio(audio_path: str):
     if file_size < 1000:
         raise ValueError(f"Audio file too small ({file_size} bytes): {audio_path}")
 
+    torch, torchaudio, _, device = _resolve_runtime()
     wav, sr = torchaudio.load(audio_path)
 
     # Convert to mono
@@ -67,6 +91,7 @@ def transcribe_indic(audio_path: str, lang: str = "hi") -> str:
         Transcribed text, or empty string on failure.
     """
     try:
+        torch, _, _, _ = _resolve_runtime()
         model = _load_model()
         wav = preprocess_audio(audio_path)
 

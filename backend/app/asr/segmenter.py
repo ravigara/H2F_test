@@ -1,15 +1,14 @@
 from __future__ import annotations
 
 import tempfile
+import wave
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List
 
-import torch
-import torchaudio
-
 
 TARGET_SAMPLE_RATE = 16000
+_runtime_error = None
 
 
 @dataclass
@@ -20,7 +19,25 @@ class AudioSegment:
     path: str
 
 
-def _normalize_waveform(waveform: torch.Tensor, sample_rate: int) -> torch.Tensor:
+def _resolve_runtime():
+    global _runtime_error
+
+    if _runtime_error is not None:
+        raise RuntimeError(_runtime_error)
+
+    try:
+        import torch
+        import torchaudio
+    except Exception as exc:
+        _runtime_error = f"Audio segmentation runtime is unavailable: {exc}"
+        raise RuntimeError(_runtime_error) from exc
+
+    return torch, torchaudio
+
+
+def _normalize_waveform(waveform, sample_rate: int):
+    _, torchaudio = _resolve_runtime()
+
     if waveform.dim() == 1:
         waveform = waveform.unsqueeze(0)
 
@@ -44,6 +61,19 @@ def segment_audio(
     energy_threshold: float = 0.012,
 ) -> List[AudioSegment]:
     """Split audio into speech-like segments using frame energy."""
+    try:
+        torch, torchaudio = _resolve_runtime()
+    except RuntimeError:
+        duration_ms = _duration_ms_from_wave(audio_path)
+        return [
+            AudioSegment(
+                index=1,
+                start_ms=0,
+                end_ms=duration_ms,
+                path=audio_path,
+            )
+        ]
+
     waveform, sample_rate = torchaudio.load(audio_path)
     waveform = _normalize_waveform(waveform, sample_rate)
 
@@ -112,12 +142,13 @@ def segment_audio(
 
 
 def _save_segments(
-    samples: torch.Tensor,
+    samples,
     frame_ranges: list[tuple[int, int]],
     output_dir: str,
     frame_size: int,
     duration_ms: int,
 ) -> List[AudioSegment]:
+    _, torchaudio = _resolve_runtime()
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
@@ -150,3 +181,15 @@ def _save_segments(
 
 def create_segment_dir() -> tempfile.TemporaryDirectory[str]:
     return tempfile.TemporaryDirectory(prefix="nudiscribe_segments_")
+
+
+def _duration_ms_from_wave(audio_path: str) -> int:
+    try:
+        with wave.open(audio_path, "rb") as wav_file:
+            frame_rate = wav_file.getframerate()
+            frame_count = wav_file.getnframes()
+            if frame_rate <= 0:
+                return 0
+            return int((frame_count / frame_rate) * 1000)
+    except Exception:
+        return 0

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import importlib
 import subprocess
 import sys
 from dataclasses import asdict, dataclass, field
@@ -60,6 +61,14 @@ class RuntimeValidationReport:
 
 def _package_available(name: str) -> bool:
     return importlib.util.find_spec(name) is not None
+
+
+def _package_importable(name: str) -> tuple[bool, str]:
+    try:
+        importlib.import_module(name)
+        return True, ""
+    except Exception as exc:
+        return False, str(exc)
 
 
 def _probe_python_module(python_bin: str, module_name: str) -> tuple[bool, str]:
@@ -122,6 +131,17 @@ def collect_runtime_validation_report(run_command_probes: bool = False) -> Runti
                     message=f"Required runtime package is missing: {package_name}",
                 )
             )
+
+    for package_name in ("whisper", "torchaudio"):
+        if required_packages.get(package_name):
+            ok, message = _package_importable(package_name)
+            if not ok:
+                report.issues.append(
+                    ValidationIssue(
+                        level="error",
+                        message=f"Required runtime package failed to import: {package_name} ({message})",
+                    )
+                )
 
     if settings.enable_tts:
         if not tts_router.available_providers():
