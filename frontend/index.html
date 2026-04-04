@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NudiScribe Console</title>
+  <link rel="stylesheet" href="./assets/styles.css">
+</head>
+<body>
+  <div class="bg-orb orb-a"></div>
+  <div class="bg-orb orb-b"></div>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Multilingual Speech Console</p>
+        <h1>NudiScribe Next-Phase Workspace</h1>
+        <p class="lede">
+          Thin frontend for chat, transcript review, TTS playback, dashboard search, and editable extraction review.
+        </p>
+      </div>
+      <section class="card settings-card">
+        <div class="field-grid compact">
+          <label>
+            <span>API Base URL</span>
+            <input id="base-url" type="text" placeholder="http://127.0.0.1:8000">
+          </label>
+          <label>
+            <span>Session ID</span>
+            <input id="session-id" type="text" placeholder="demo-session">
+          </label>
+        </div>
+        <div class="button-row">
+          <button id="connect-chat" class="button">Connect Chat WS</button>
+          <button id="refresh-dashboard" class="button ghost">Refresh Dashboard</button>
+        </div>
+        <p id="status-banner" class="status-banner">Idle.</p>
+      </section>
+    </header>
+
+    <section class="grid">
+      <article class="card span-2">
+        <div class="section-head">
+          <h2>Live Chat</h2>
+          <p>Streams through the existing text WebSocket.</p>
+        </div>
+        <div id="chat-log" class="chat-log"></div>
+        <div class="composer">
+          <textarea id="chat-input" rows="3" placeholder="Type multilingual text here"></textarea>
+          <div class="button-row">
+            <button id="send-chat" class="button">Send Message</button>
+            <button id="clear-chat" class="button ghost">Clear Chat View</button>
+          </div>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="section-head">
+          <h2>Audio Intake</h2>
+          <p>Upload audio or record with the microphone, then send it through `/api/transcribe`.</p>
+        </div>
+        <div class="field-grid">
+          <label>
+            <span>Upload Audio</span>
+            <input id="audio-file" type="file" accept=".wav,.mp3,.m4a,.ogg,.webm,.flac,audio/*">
+          </label>
+        </div>
+        <div class="button-row">
+          <button id="upload-audio" class="button">Transcribe Upload</button>
+          <button id="record-audio" class="button ghost">Start Recording</button>
+        </div>
+        <div class="panel">
+          <p class="panel-label">Transcript</p>
+          <pre id="transcript-output" class="output-block">No transcript yet.</pre>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="section-head">
+          <h2>TTS Playback</h2>
+          <p>Synthesizes through the existing REST TTS route.</p>
+        </div>
+        <label>
+          <span>Speech Text</span>
+          <textarea id="tts-text" rows="5" placeholder="Enter text for speech synthesis"></textarea>
+        </label>
+        <div class="field-grid compact">
+          <label>
+            <span>Preferred Language</span>
+            <select id="tts-language">
+              <option value="">Auto</option>
+              <option value="en">English</option>
+              <option value="hi">Hindi</option>
+              <option value="kn">Kannada</option>
+            </select>
+          </label>
+        </div>
+        <div class="button-row">
+          <button id="synthesize-tts" class="button">Synthesize</button>
+        </div>
+        <audio id="tts-player" controls></audio>
+        <p id="tts-meta" class="meta-line">No TTS result yet.</p>
+      </article>
+
+      <article class="card">
+        <div class="section-head">
+          <h2>Dashboard</h2>
+          <p>Recent sessions, counts, and persisted summary data.</p>
+        </div>
+        <div id="dashboard-metrics" class="metrics-grid"></div>
+        <div class="panel">
+          <p class="panel-label">Recent Sessions</p>
+          <div id="session-list" class="list-stack"></div>
+        </div>
+      </article>
+
+      <article class="card span-2">
+        <div class="section-head">
+          <h2>Session Explorer</h2>
+          <p>Messages, transcripts, telemetry, and searchable persisted records.</p>
+        </div>
+        <div class="field-grid compact">
+          <label>
+            <span>Search</span>
+            <input id="search-query" type="text" placeholder="Search messages and transcripts">
+          </label>
+        </div>
+        <div class="button-row">
+          <button id="run-search" class="button">Search</button>
+          <button id="load-session" class="button ghost">Load Active Session</button>
+        </div>
+        <div class="triple">
+          <div class="panel">
+            <p class="panel-label">Messages</p>
+            <div id="session-messages" class="list-stack"></div>
+          </div>
+          <div class="panel">
+            <p class="panel-label">Transcripts</p>
+            <div id="session-transcripts" class="list-stack"></div>
+          </div>
+          <div class="panel">
+            <p class="panel-label">Telemetry / Search</p>
+            <div id="session-telemetry" class="list-stack"></div>
+            <div id="search-results" class="list-stack subdued"></div>
+          </div>
+        </div>
+      </article>
+
+      <article class="card span-2">
+        <div class="section-head">
+          <h2>Structured Extraction Review</h2>
+          <p>Generate a workflow-based structured record and review it inline.</p>
+        </div>
+        <div class="field-grid">
+          <label>
+            <span>Workflow</span>
+            <select id="workflow-select"></select>
+          </label>
+          <label class="wide">
+            <span>Extraction Source Override</span>
+            <textarea id="extraction-source" rows="4" placeholder="Leave empty to use the active session history"></textarea>
+          </label>
+        </div>
+        <div class="button-row">
+          <button id="generate-extraction" class="button">Generate Extraction</button>
+          <button id="save-review" class="button ghost">Save Review</button>
+        </div>
+        <div class="field-grid compact">
+          <label>
+            <span>Status</span>
+            <select id="review-status">
+              <option value="generated">Generated</option>
+              <option value="reviewed">Reviewed</option>
+              <option value="approved">Approved</option>
+            </select>
+          </label>
+          <label class="wide">
+            <span>Reviewer Notes</span>
+            <input id="review-notes" type="text" placeholder="Notes about the edit or approval">
+          </label>
+        </div>
+        <div id="review-editor" class="review-editor"></div>
+        <div class="panel">
+          <p class="panel-label">Stored Extractions</p>
+          <div id="extraction-list" class="list-stack"></div>
+        </div>
+      </article>
+    </section>
+  </main>
+
+  <script type="module" src="./assets/app.js"></script>
+</body>
+</html>

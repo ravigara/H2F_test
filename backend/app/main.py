@@ -1,8 +1,11 @@
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from .api import router
-from .config import existing_env_files, settings
+from .config import REPO_ROOT, existing_env_files, settings
 from .logger import get_logger
 from .memory import store
 from .runtime_validation import collect_runtime_validation_report
@@ -28,6 +31,10 @@ app.add_middleware(
 )
 
 app.include_router(router)
+
+frontend_root = Path(REPO_ROOT) / "frontend"
+if frontend_root.exists():
+    app.mount("/app", StaticFiles(directory=str(frontend_root), html=True), name="frontend")
 
 
 @app.on_event("startup")
@@ -72,5 +79,8 @@ async def root():
             "tts-routing",
             "websocket-tts",
             "runtime-validation",
+            "dashboard-summary",
+            "structured-extraction",
+            "editable-review",
         ],
     }

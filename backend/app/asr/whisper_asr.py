@@ -1,3 +1,8 @@
+import os
+import shutil
+import sys
+from pathlib import Path
+
 import whisper
 import torch
 
@@ -8,6 +13,36 @@ log = get_logger("asr.whisper")
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 _model = None
+
+
+def _ensure_ffmpeg_on_path() -> None:
+    """Prefer the bundled imageio-ffmpeg binary when ffmpeg is not on PATH."""
+    if os.environ.get("NUDISCRIBE_FFMPEG_READY") == "1":
+        return
+
+    if os.system("where ffmpeg >nul 2>nul") == 0:
+        os.environ["NUDISCRIBE_FFMPEG_READY"] = "1"
+        return
+
+    try:
+        import imageio_ffmpeg
+    except Exception:
+        return
+
+    ffmpeg_exe = Path(imageio_ffmpeg.get_ffmpeg_exe())
+    alias_dir = Path(sys.executable).resolve().parent
+    alias_path = alias_dir / "ffmpeg.exe"
+    if not alias_path.exists():
+        try:
+            shutil.copyfile(ffmpeg_exe, alias_path)
+        except Exception:
+            alias_path = ffmpeg_exe
+
+    ffmpeg_dir = str(alias_path.parent)
+    current_path = os.environ.get("PATH", "")
+    if ffmpeg_dir and ffmpeg_dir not in current_path:
+        os.environ["PATH"] = ffmpeg_dir + os.pathsep + current_path
+    os.environ["NUDISCRIBE_FFMPEG_READY"] = "1"
 
 
 def _load_model():
@@ -30,6 +65,7 @@ def transcribe_english(audio_path: str) -> str:
     Returns empty string on failure instead of crashing.
     """
     try:
+        _ensure_ffmpeg_on_path()
         model = _load_model()
         result = model.transcribe(audio_path)
         text = result.get("text", "").strip()
@@ -46,6 +82,7 @@ def transcribe_with_language(audio_path: str) -> tuple:
     Returns (text, detected_language_code).
     """
     try:
+        _ensure_ffmpeg_on_path()
         model = _load_model()
         result = model.transcribe(audio_path)
         text = result.get("text", "").strip()

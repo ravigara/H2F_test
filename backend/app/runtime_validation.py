@@ -22,6 +22,7 @@ REQUIRED_RUNTIME_PACKAGES = (
 OPTIONAL_RUNTIME_PACKAGES = (
     "TTS",
     "sounddevice",
+    "imageio_ffmpeg",
 )
 
 

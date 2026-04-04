@@ -3,18 +3,36 @@ import os
 import time
 import wave
 
-from fastapi import APIRouter, File, UploadFile, WebSocket
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile, WebSocket
 from fastapi.responses import JSONResponse
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 
 from .asr.router import ASRRouter
 from .audio_utils import AudioFormatConfig, trim_pcm16_silence
+from .extraction import build_source_text, ensure_default_workflows, generate_structured_extraction
 from .logger import get_logger
 from .memory import store
 from .ollama_client import OllamaClient
 from .orchestrator import Orchestrator
 from .runtime_validation import collect_runtime_validation_report
-from .schemas import ChatRequest, ChatResponse, HealthResponse, TTSRequest, TTSResponse
+from .schemas import (
+    ChatRequest,
+    ChatResponse,
+    DashboardSummary,
+    ExtractionGenerateRequest,
+    ExtractionRecord,
+    ExtractionReviewUpdateRequest,
+    HealthResponse,
+    MessageRecord,
+    SearchResult,
+    SessionSummary,
+    TTSRequest,
+    TTSResponse,
+    TelemetryRecord,
+    TranscriptRecord,
+    WorkflowConfig,
+    WorkflowUpdateRequest,
+)
 from .transcript_cleaner import clean_transcript
 from .tts_router import TTSSegmentInput, tts_router
 
@@ -24,6 +42,7 @@ router = APIRouter()
 orch = Orchestrator()
 asr_router = ASRRouter()
 ollama_client = OllamaClient()
+ensure_default_workflows()
 
 _start_time = time.time()
 _ALLOWED_AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".ogg", ".webm", ".flac"}
@@ -74,6 +93,13 @@ def _build_tts_segment_inputs(
             languages=fallback_languages,
         )
     ]
+
+
+def _require_session(session_id: str) -> dict:
+    detail = store.get_session_detail(session_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' was not found.")
+    return detail
 
 
 @router.get("/api/health", response_model=HealthResponse)
@@ -307,6 +333,151 @@ async def clear_session(session_id: str):
 async def list_sessions():
     """List all active sessions."""
     return {"sessions": store.list_sessions(), "count": store.session_count()}
+
+
+@router.get("/api/dashboard/summary", response_model=DashboardSummary)
+async def dashboard_summary():
+    """Dashboard summary for persisted sessions, transcripts, telemetry, and reviews."""
+    ensure_default_workflows()
+    return store.dashboard_summary()
+
+
+@router.get("/api/metrics")
+async def metrics_summary():
+    """Lightweight metrics summary backed by persisted telemetry."""
+    summary = store.dashboard_summary()
+    return {
+        "sessions_active": summary["session_count"],
+        "messages_total": summary["message_count"],
+        "transcripts_total": summary["transcript_count"],
+        "telemetry_total": summary["telemetry_count"],
+        "errors_total": summary["error_count"],
+        "workflows_total": summary["workflow_count"],
+        "extractions_total": summary["extraction_count"],
+        "languages_seen": summary["language_counts"],
+    }
+
+
+@router.get("/api/search", response_model=list[SearchResult])
+async def search_records(q: str = Query("", min_length=1), limit: int = Query(25, ge=1, le=100)):
+    """Search persisted messages and transcripts."""
+    return store.search(q, limit=limit)
+
+
+@router.get("/api/session/{session_id}", response_model=SessionSummary)
+async def get_session(session_id: str):
+    """Get a summary view of a single persisted session."""
+    return _require_session(session_id)
+
+
+@router.get("/api/session/{session_id}/messages", response_model=list[MessageRecord])
+async def get_session_messages(
+    session_id: str,
+    limit: int = Query(100, ge=1, le=500),
+):
+    """List persisted messages for a session."""
+    _require_session(session_id)
+    return store.list_messages(session_id, limit=limit)
+
+
+@router.get("/api/session/{session_id}/transcripts", response_model=list[TranscriptRecord])
+async def get_session_transcripts(
+    session_id: str,
+    limit: int = Query(100, ge=1, le=500),
+    q: str = Query("", alias="q"),
+):
+    """List persisted transcripts for a session."""
+    _require_session(session_id)
+    return store.list_transcripts(session_id=session_id, limit=limit, search_query=q)
+
+
+@router.get("/api/session/{session_id}/telemetry", response_model=list[TelemetryRecord])
+async def get_session_telemetry(
+    session_id: str,
+    limit: int = Query(100, ge=1, le=500),
+    kind: str = Query("", alias="kind"),
+):
+    """List persisted telemetry for a session."""
+    _require_session(session_id)
+    return store.list_telemetry(session_id=session_id, limit=limit, kind=kind)
+
+
+@router.get("/api/workflows", response_model=list[WorkflowConfig])
+async def list_workflows():
+    """List available review workflows."""
+    ensure_default_workflows()
+    return store.list_workflows()
+
+
+@router.put("/api/workflows/{workflow_name}", response_model=WorkflowConfig)
+async def upsert_workflow(workflow_name: str, request: WorkflowUpdateRequest):
+    """Create or update a review workflow."""
+    return store.upsert_workflow(
+        workflow_name,
+        request.display_name,
+        request.description,
+        [field.model_dump() for field in request.fields],
+    )
+
+
+@router.get("/api/extractions", response_model=list[ExtractionRecord])
+async def list_extractions(
+    session_id: str = Query("", alias="session_id"),
+    workflow_name: str = Query("", alias="workflow_name"),
+    limit: int = Query(50, ge=1, le=200),
+):
+    """List generated or reviewed extraction records."""
+    return store.list_extractions(
+        session_id=session_id or None,
+        workflow_name=workflow_name,
+        limit=limit,
+    )
+
+
+@router.post("/api/extractions/generate", response_model=ExtractionRecord)
+async def generate_extraction(request: ExtractionGenerateRequest):
+    """Generate a structured extraction from direct text or a persisted session."""
+    source_text = build_source_text(request.session_id, request.text)
+    if not source_text:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide text or a session_id with persisted conversation data.",
+        )
+
+    generated = generate_structured_extraction(
+        workflow_name=request.workflow_name,
+        source_text=source_text,
+        session_id=request.session_id,
+    )
+    return store.create_extraction(
+        workflow_name=request.workflow_name,
+        source_text=source_text,
+        generated_data=generated,
+        session_id=request.session_id,
+    )
+
+
+@router.get("/api/extractions/{extraction_id}", response_model=ExtractionRecord)
+async def get_extraction(extraction_id: int):
+    """Read a single extraction record."""
+    record = store.get_extraction(extraction_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"Extraction '{extraction_id}' was not found.")
+    return record
+
+
+@router.put("/api/extractions/{extraction_id}", response_model=ExtractionRecord)
+async def update_extraction(extraction_id: int, request: ExtractionReviewUpdateRequest):
+    """Review and edit a generated extraction."""
+    record = store.update_extraction_review(
+        extraction_id,
+        reviewed_data=request.reviewed_data,
+        status=request.status,
+        notes=request.notes,
+    )
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"Extraction '{extraction_id}' was not found.")
+    return record
 
 
 @router.websocket("/ws/{session_id}")

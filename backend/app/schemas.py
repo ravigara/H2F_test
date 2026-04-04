@@ -97,3 +97,116 @@ class OrchestratorEvent(BaseModel):
     sample_rate: Optional[int] = None
     audio_b64: Optional[str] = None
     error: Optional[str] = None
+
+
+class SessionSummary(BaseModel):
+    session_id: str
+    created_at: str
+    updated_at: str
+    languages: List[str] = Field(default_factory=list)
+    selected_language: str = ""
+    message_count: int = 0
+    transcript_count: int = 0
+    telemetry_count: int = 0
+
+
+class MessageRecord(BaseModel):
+    id: int
+    session_id: str
+    role: str
+    content: str
+    created_at: str
+
+
+class TranscriptRecord(BaseModel):
+    id: int
+    session_id: Optional[str] = None
+    source: str
+    text: str
+    dominant_language: str = ""
+    languages: List[str] = Field(default_factory=list)
+    is_code_mixed: bool = False
+    segments: List[dict] = Field(default_factory=list)
+    details: dict = Field(default_factory=dict)
+    created_at: str
+
+
+class TelemetryRecord(BaseModel):
+    id: int
+    session_id: Optional[str] = None
+    kind: str
+    name: str
+    status: str = ""
+    latency_ms: Optional[float] = None
+    error_message: str = ""
+    details: dict = Field(default_factory=dict)
+    created_at: str
+
+
+class SearchResult(BaseModel):
+    source_type: str
+    record_id: int
+    session_id: Optional[str] = None
+    subtype: str
+    text: str
+    snippet: str
+    created_at: str
+
+
+class DashboardSummary(BaseModel):
+    session_count: int
+    message_count: int
+    transcript_count: int
+    telemetry_count: int
+    error_count: int
+    workflow_count: int
+    extraction_count: int
+    language_counts: dict = Field(default_factory=dict)
+    recent_sessions: List[SessionSummary] = Field(default_factory=list)
+
+
+class WorkflowField(BaseModel):
+    key: str
+    label: str
+    type: str = "text"
+
+
+class WorkflowConfig(BaseModel):
+    name: str
+    display_name: str
+    description: str = ""
+    fields: List[WorkflowField] = Field(default_factory=list)
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class WorkflowUpdateRequest(BaseModel):
+    display_name: str
+    description: str = ""
+    fields: List[WorkflowField] = Field(default_factory=list)
+
+
+class ExtractionGenerateRequest(BaseModel):
+    workflow_name: str = "general"
+    session_id: Optional[str] = None
+    text: str = ""
+
+
+class ExtractionReviewUpdateRequest(BaseModel):
+    reviewed_data: dict = Field(default_factory=dict)
+    status: str = "reviewed"
+    notes: str = ""
+
+
+class ExtractionRecord(BaseModel):
+    id: int
+    session_id: Optional[str] = None
+    workflow_name: str
+    source_text: str
+    generated_data: dict = Field(default_factory=dict)
+    reviewed_data: dict = Field(default_factory=dict)
+    effective_data: dict = Field(default_factory=dict)
+    status: str = "generated"
+    notes: str = ""
+    created_at: str
+    updated_at: str

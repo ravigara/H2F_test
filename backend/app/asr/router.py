@@ -3,14 +3,24 @@ import re
 from dataclasses import dataclass, field
 from typing import Set
 
-from .indic_asr import transcribe_indic
 from .segmenter import create_segment_dir, segment_audio
-from .whisper_asr import transcribe_english
 from ..language import detect_scripts, get_dominant_language, is_code_mixed
 from ..logger import get_logger
 from ..transcript_cleaner import build_segment_metadata, clean_transcript
 
 log = get_logger("asr.router")
+
+
+def _transcribe_english(audio_path: str) -> str:
+    from .whisper_asr import transcribe_english
+
+    return transcribe_english(audio_path)
+
+
+def _transcribe_indic(audio_path: str, language: str) -> str:
+    from .indic_asr import transcribe_indic
+
+    return transcribe_indic(audio_path, language)
 
 
 @dataclass
@@ -99,7 +109,7 @@ class ASRRouter:
     async def _transcribe_segment(self, audio_path: str) -> tuple[str, Set[str], str]:
         loop = asyncio.get_event_loop()
 
-        whisper_text = await loop.run_in_executor(None, transcribe_english, audio_path)
+        whisper_text = await loop.run_in_executor(None, _transcribe_english, audio_path)
         whisper_text = clean_transcript(whisper_text)
 
         clean_text = whisper_text.strip()
@@ -110,8 +120,8 @@ class ASRRouter:
         ):
             return clean_text, {"en"}, "whisper"
 
-        hi_text = await loop.run_in_executor(None, transcribe_indic, audio_path, "hi")
-        kn_text = await loop.run_in_executor(None, transcribe_indic, audio_path, "kn")
+        hi_text = await loop.run_in_executor(None, _transcribe_indic, audio_path, "hi")
+        kn_text = await loop.run_in_executor(None, _transcribe_indic, audio_path, "kn")
         hi_text = clean_transcript(hi_text)
         kn_text = clean_transcript(kn_text)
 
