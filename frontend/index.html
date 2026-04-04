@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NuDiscribe Console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <p class="eyebrow">Speech Workspace</p>
+        <h1>NuDiscribe</h1>
+        <p class="subtitle">A browser client for multilingual chat, transcription, and speech playback.</p>
+      </div>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Connection</h2>
+          <button id="healthBtn" class="ghost">Check health</button>
+        </div>
+
+        <label class="field">
+          <span>Backend URL</span>
+          <input id="apiBase" type="text" placeholder="http://127.0.0.1:8000">
+        </label>
+
+        <label class="field">
+          <span>Session ID</span>
+          <div class="inline">
+            <input id="sessionId" type="text" placeholder="session id">
+            <button id="randomSessionBtn" class="ghost">Random</button>
+          </div>
+        </label>
+
+        <div class="status-grid">
+          <div>
+            <span class="label">API</span>
+            <strong id="healthStatus">Unknown</strong>
+          </div>
+          <div>
+            <span class="label">Model</span>
+            <strong id="modelStatus">-</strong>
+          </div>
+          <div>
+            <span class="label">Sessions</span>
+            <strong id="sessionCount">-</strong>
+          </div>
+          <div>
+            <span class="label">Uptime</span>
+            <strong id="uptime">-</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Audio Tools</h2>
+        </div>
+
+        <label class="field">
+          <span>Upload audio</span>
+          <input id="audioFile" type="file" accept=".wav,.mp3,.m4a,.ogg,.webm,.flac,audio/*">
+        </label>
+
+        <div class="button-row">
+          <button id="transcribeBtn">Transcribe</button>
+          <button id="sendTranscriptBtn" class="ghost" disabled>Send transcript</button>
+        </div>
+
+        <div class="transcript-box" id="transcriptBox">No transcript yet.</div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Session</h2>
+        </div>
+
+        <div class="button-row">
+          <button id="clearSessionBtn" class="danger">Clear backend session</button>
+          <button id="clearChatBtn" class="ghost">Clear local chat</button>
+        </div>
+
+        <div class="button-row">
+          <button id="loadSessionsBtn" class="ghost">Load sessions</button>
+        </div>
+
+        <div class="session-list" id="sessionList">No session data loaded.</div>
+      </section>
+    </aside>
+
+    <main class="main">
+      <section class="hero">
+        <p class="eyebrow">Frontend</p>
+        <h2>Chat across text, transcription, and TTS.</h2>
+        <p class="subtitle">Uses `POST /api/chat`, `POST /api/transcribe`, `POST /api/tts`, and `ws/{session_id}` directly.</p>
+      </section>
+
+      <section class="chat-card">
+        <div class="chat-toolbar">
+          <div>
+            <span class="label">Mode</span>
+            <strong>Streaming WebSocket chat</strong>
+          </div>
+          <div class="toolbar-actions">
+            <button id="reconnectBtn" class="ghost">Reconnect socket</button>
+            <button id="speakBtn" class="ghost" disabled>Speak last reply</button>
+          </div>
+        </div>
+
+        <div class="chat-log" id="chatLog"></div>
+
+        <form id="chatForm" class="composer">
+          <textarea id="messageInput" rows="3" placeholder="Type in English, Hindi, Kannada, or code-mixed text..."></textarea>
+          <div class="composer-actions">
+            <div class="hint" id="socketState">Socket not connected.</div>
+            <button id="sendBtn" type="submit">Send</button>
+          </div>
+        </form>
+      </section>
+    </main>
+  </div>
+
+  <template id="messageTemplate">
+    <article class="message">
+      <div class="message-meta">
+        <span class="role"></span>
+        <span class="meta"></span>
+      </div>
+      <div class="message-body"></div>
+    </article>
+  </template>
+
+  <script src="./app.js"></script>
+</body>
+</html>
